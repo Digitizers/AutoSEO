@@ -1992,6 +1992,17 @@ def run_diagnose_pipeline(config):
 
     if not config.get("search_console"):
         print("\n  [error] search_console config missing. Cannot run diagnosis.")
+        print("\n  Add the following to your config.yaml:")
+        print("    search_console:")
+        print("      credentials_file: \"client_secret_....json\"")
+        print("      token_file: \"gsc_token.json\"")
+        print(f"      site_url: \"sc-domain:{domain}\"")
+        print("      protection_thresholds:")
+        print("        min_clicks: 10")
+        print("        min_impressions: 100")
+        print("        max_position: 20.0")
+        print("\n  Or use a config that already has it:")
+        print("    python run.py diagnose --config config.pawly.yaml")
         return
 
     report_lines = []
