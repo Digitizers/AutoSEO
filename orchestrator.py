@@ -38,7 +38,8 @@ def _load_update_history(config):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"  [warn] Could not load update history ({path}): {e} — starting fresh")
         return {}
 
 
@@ -58,7 +59,10 @@ def _record_updated_post(post_id, title, config, original_title=None, original_b
                     Stored so content can be fully restored if the rewrite hurts rankings.
     history:        pass a pre-loaded history dict to avoid a redundant disk read when
                     recording multiple posts in the same run. The updated dict is returned.
+                    When history is provided the caller is responsible for flushing to disk
+                    once after the loop (call _save_update_history(history, config)).
     """
+    caller_owns_save = history is not None
     if history is None:
         history = _load_update_history(config)
     entry = {
@@ -70,14 +74,10 @@ def _record_updated_post(post_id, title, config, original_title=None, original_b
     if original_body:
         entry["original_body"] = original_body
     history[str(post_id)] = entry
-    _save_update_history(history, config)
+    if not caller_owns_save:
+        _save_update_history(history, config)
     return history
 
-
-def _is_already_updated(post_id, config):
-    """Check if a post was already updated in a previous run."""
-    history = _load_update_history(config)
-    return str(post_id) in history
 
 
 def _get_static_history_path(config):
@@ -94,7 +94,8 @@ def _load_static_history(config):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"  [warn] Could not load static history ({path}): {e} — starting fresh")
         return {}
 
 
@@ -128,7 +129,8 @@ def _load_recovery_history(config):
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"  [warn] Could not load recovery history ({path}): {e} — starting fresh")
         return {}
 
 
@@ -262,6 +264,7 @@ def send_whatsapp_message(message_text, config):
 
 
 MAX_REVIEW_ROUNDS = 3
+MAX_POST_REWRITES = 3  # max posts rewritten per pipeline run (update + full modes)
 
 
 def _format_post_for_whatsapp(gemini_output, site_name, label="פוסט חדש"):
@@ -780,9 +783,8 @@ def run_update_pipeline(seed_keywords, config):
 
     rewrite_queue = []
     skipped_count = 0
-    max_rewrites = 3
     for post in posts_needing_updates:
-        if len(rewrite_queue) >= max_rewrites:
+        if len(rewrite_queue) >= MAX_POST_REWRITES:
             break
         title = post.get("title", "")
         post_id = post.get("_id")
@@ -966,6 +968,8 @@ def run_update_pipeline(seed_keywords, config):
                 )
             except Exception as e:
                 print(f"  [update] Error: {e}")
+        # Flush history once after all updates (avoids N disk writes for N posts)
+        _save_update_history(update_history, config)
 
     if rejected_items:
         print(f"\n  {len(rejected_items)} posts rejected, saving drafts...")
@@ -1386,9 +1390,8 @@ def run_full_pipeline(seed_keywords, config):
         print("\n  No posts need updating!")
     else:
         rewrite_queue = []
-        max_rewrites = 3
         for post in posts_needing_updates:
-            if len(rewrite_queue) >= max_rewrites:
+            if len(rewrite_queue) >= MAX_POST_REWRITES:
                 break
             title = post.get("title", "")
             post_id = post.get("_id")
@@ -1479,6 +1482,8 @@ def run_full_pipeline(seed_keywords, config):
                     total_updates_applied += 1
                 except Exception as e:
                     print(f"  [update] Error: {e}")
+        # Flush history once after all updates (avoids N disk writes for N posts)
+        _save_update_history(update_history, config)
 
     # ════════════════════════════════════════════
     # PART C: Rewrite Static Pages
@@ -1672,7 +1677,7 @@ def run_recover_pipeline(config):
     try:
         from tools.search_console import (
             find_lost_pages, fetch_page_queries,
-            fetch_gsc_period_by_page, classify_page_seo, fetch_page_queries as _fpq,
+            fetch_gsc_period_by_page, classify_page_seo,
         )
         lost_pages = find_lost_pages(config, recent_days=recent_days)
     except FileNotFoundError as e:
@@ -3458,6 +3463,13 @@ def run_dedupe_pipeline(config):
 
     print(f"  נמצאו {len(clusters)} אשכולות קניבליזציה")
 
+    # Build url→post mapping once (O(n)) so cluster loops don't re-scan all posts (O(n²))
+    url_to_post = {}
+    for post in blog_posts:
+        matched_url, _ = match_post_to_gsc_url(post.get("title", ""), gsc_perf, config)
+        if matched_url and matched_url not in url_to_post:
+            url_to_post[matched_url] = post
+
     # ── Phase 3 & 4: For each cluster, identify winner/losers and check indexing ──
     action_plan = []
 
@@ -3468,26 +3480,13 @@ def run_dedupe_pipeline(config):
         winner_entry = urls[0]
         loser_entries = urls[1:]
 
-        # Match winner to a MongoDB post
         winner_url = winner_entry["url"]
-        winner_post = None
-        for post in blog_posts:
-            title = post.get("title", "")
-            matched_url, _ = match_post_to_gsc_url(title, {winner_url: gsc_perf.get(winner_url, {})}, config)
-            if matched_url:
-                winner_post = post
-                break
+        winner_post = url_to_post.get(winner_url)
 
         losers = []
         for loser_entry in loser_entries:
             loser_url = loser_entry["url"]
-            loser_post = None
-            for post in blog_posts:
-                title = post.get("title", "")
-                matched_url, _ = match_post_to_gsc_url(title, {loser_url: gsc_perf.get(loser_url, {})}, config)
-                if matched_url:
-                    loser_post = post
-                    break
+            loser_post = url_to_post.get(loser_url)
 
             # Phase 3: Check indexing status
             print(f"  בודק אינדוקס: {loser_url[:70]}...")
