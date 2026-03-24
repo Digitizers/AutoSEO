@@ -267,6 +267,28 @@ MAX_REVIEW_ROUNDS = 3
 MAX_POST_REWRITES = 3  # max posts rewritten per pipeline run (update + full modes)
 
 
+def _is_topic_covered_by_title(topic, own_posts):
+    """
+    Check if an existing post already covers this keyword/topic at the title level.
+    Uses Hebrew word overlap between the topic phrase and existing post titles to
+    prevent creating duplicate posts on already-covered topics.
+
+    Returns True if an existing post title shares ≥60% of the topic's Hebrew words.
+    """
+    topic_words = set(re.findall(r"[\u0590-\u05FF]{2,}", topic))
+    if not topic_words:
+        return False
+    for post in own_posts:
+        title = post.get("title", "")
+        title_words = set(re.findall(r"[\u0590-\u05FF]{2,}", title))
+        if not title_words:
+            continue
+        overlap = len(topic_words & title_words)
+        if overlap / len(topic_words) >= 0.6:
+            return True
+    return False
+
+
 def _format_post_for_whatsapp(gemini_output, site_name, label="פוסט חדש"):
     """Format a Gemini blog post into a full WhatsApp review message."""
     parsed = parse_gemini_output(gemini_output)
@@ -658,13 +680,17 @@ def run_new_pipeline(seed_keywords, config):
     # ────────────────────────────────────────────
     print("\n[Phase 4] Generating new blog post with Gemini...")
 
+    own_posts = research["own_posts"]
     best_new_topic = None
     for kw, _ in top_keywords:
-        if kw in uncovered_keywords:
+        if kw in uncovered_keywords and not _is_topic_covered_by_title(kw, own_posts):
             best_new_topic = kw
             break
-    if not best_new_topic and uncovered_keywords:
-        best_new_topic = list(uncovered_keywords)[0]
+    if not best_new_topic:
+        for kw in uncovered_keywords:
+            if not _is_topic_covered_by_title(kw, own_posts):
+                best_new_topic = kw
+                break
     if not best_new_topic:
         best_new_topic = seed_keywords[0]
 
@@ -873,6 +899,8 @@ def run_update_pipeline(seed_keywords, config):
 
         # Capture body before update for recovery backup
         original_body = post.get("body", "")
+        if isinstance(original_body, dict):
+            original_body = json.dumps(original_body, ensure_ascii=False)
 
         rewrite_queue.append({
             "post_id": post_id,
@@ -1299,18 +1327,21 @@ def run_full_pipeline(seed_keywords, config):
     print("  PART A: CREATING NEW BLOG POSTS")
     print("▓" * 60)
 
-    # Pick up to MAX_NEW_POSTS uncovered topics
+    # Pick up to MAX_NEW_POSTS uncovered topics, skipping any already covered by an existing post title.
+    # The uncovered_keywords set compares phrases vs. individual words so it over-reports gaps;
+    # _is_topic_covered_by_title catches the cases where a post already targets the same topic.
     new_topics = []
     used = set()
+    own_posts_for_dedup = research["own_posts"]
     for kw, _ in top_keywords:
-        if kw in uncovered_keywords and kw not in used:
+        if kw in uncovered_keywords and kw not in used and not _is_topic_covered_by_title(kw, own_posts_for_dedup):
             new_topics.append(kw)
             used.add(kw)
         if len(new_topics) >= MAX_NEW_POSTS:
             break
     # Fill remaining slots from uncovered keywords
     for kw in uncovered_keywords:
-        if kw not in used:
+        if kw not in used and not _is_topic_covered_by_title(kw, own_posts_for_dedup):
             new_topics.append(kw)
             used.add(kw)
         if len(new_topics) >= MAX_NEW_POSTS:
@@ -1455,6 +1486,8 @@ def run_full_pipeline(seed_keywords, config):
 
             # Capture body before update for recovery backup
             original_body = post.get("body", "")
+            if isinstance(original_body, dict):
+                original_body = json.dumps(original_body, ensure_ascii=False)
 
             final_output, approved = _review_loop(
                 rewritten, config, site_name,

@@ -70,13 +70,23 @@ def _composite_logo(img, logo_path):
     return img
 
 
-def _compress_image(image_bytes, logo_path=None, max_size_kb=500, format="JPEG"):
-    """Compress image to stay under max_size_kb, with logo composited."""
+def _compress_image(image_bytes, logo_path=None, max_size_kb=200, format="JPEG"):
+    """
+    Compress image to stay under max_size_kb, with logo composited.
+
+    Always resizes to 1200×1200 px before compression so the frontend can set
+    explicit width/height on every img tag (prevents Cumulative Layout Shift on mobile).
+    200 KB target keeps Largest Contentful Paint fast on mobile connections.
+    """
     img = Image.open(io.BytesIO(image_bytes))
 
     # Composite logo onto image
     if logo_path:
         img = _composite_logo(img, logo_path)
+
+    # Resize to standard 1200×1200 — predictable dimensions for explicit img width/height
+    if img.size != (1200, 1200):
+        img = img.resize((1200, 1200), Image.LANCZOS)
 
     # Convert RGBA to RGB for JPEG
     if img.mode == "RGBA" and format == "JPEG":
@@ -84,7 +94,7 @@ def _compress_image(image_bytes, logo_path=None, max_size_kb=500, format="JPEG")
         bg.paste(img, mask=img.split()[3])
         img = bg
 
-    quality = 90
+    quality = 85
     while quality >= 20:
         buffer = io.BytesIO()
         img.save(buffer, format=format, quality=quality, optimize=True)
