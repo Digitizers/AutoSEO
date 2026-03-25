@@ -81,8 +81,8 @@ def _scrape_with_playwright(query, lang="he", country="il", num_results=10, user
 
         try:
             page.goto(google_url, wait_until="domcontentloaded", timeout=30000)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  [serp] Navigation failed: {e}")
 
         # Dismiss Google consent dialog if present (common in IL/EU)
         try:

@@ -1,7 +1,7 @@
 import sys
 import os
 import yaml
-from orchestrator import run_new_pipeline, run_update_pipeline, run_static_pipeline, run_full_pipeline, run_images_pipeline, run_recover_pipeline, run_diagnose_pipeline, run_products_pipeline, run_impact_pipeline, run_dedupe_pipeline
+from orchestrator import run_new_pipeline, run_update_pipeline, run_static_pipeline, run_full_pipeline, run_images_pipeline, run_recover_pipeline, run_diagnose_pipeline, run_products_pipeline, run_impact_pipeline, run_dedupe_pipeline, run_restore_titles_pipeline
 
 # Fix Hebrew output on Windows console
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -59,6 +59,8 @@ def main():
         run_impact_pipeline(config)
     elif mode == "dedupe":
         run_dedupe_pipeline(config)
+    elif mode == "restore_titles":
+        run_restore_titles_pipeline(config)
     else:
         print(f"{site_name} SEO Blog Engine")
         print("=" * 40)
@@ -73,7 +75,8 @@ def main():
         print("  python run.py diagnose                             Deep SEO analysis: indexing, CWV, cannibalization, trends")
         print("  python run.py products                             SEO-optimize product pages: rewrite content + branded images")
         print("  python run.py impact                               Measure GSC impact of recent updates (before vs after)")
-        print("  python run.py dedupe                               Fix cannibalization: merge/delete duplicate-topic posts")
+        print("  python run.py dedupe                               Fix cannibalization: merge/delete duplicate-topic posts
+  python run.py restore_titles                       Restore original URL slugs for posts whose title was changed")
         print("  python run.py new --config config.pawly.yaml       Use specific config")
         print()
         print(f"Config: {config_path}")

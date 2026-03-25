@@ -1,4 +1,3 @@
-import base64
 from google import genai
 from google.genai import types
 from generator.prompts import build_blog_prompt, build_edit_prompt, build_rewrite_prompt, build_fix_prompt, build_static_page_prompt, build_image_prompt, build_recovery_rewrite_prompt, build_product_prompt, build_differentiation_prompt, build_subtitle_only_prompt

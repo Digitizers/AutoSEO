@@ -864,19 +864,15 @@ def run_update_pipeline(seed_keywords, config):
         # ctr_opportunity: page ranks on page 1 but low CTR — only update meta description, never touch body
         subtitle_only = (gsc_category == "ctr_opportunity")
 
-        # not_indexed: title CAN be changed — no URL rankings at risk (page was never indexed by Google)
-        allow_title_change = (gsc_category == "not_indexed")
+        # Title = URL slug in the CMS — NEVER change it for existing posts, regardless of GSC category.
+        # Even not_indexed posts have a real URL; changing the title creates a 404 and loses any crawl equity.
+        allow_title_change = False
 
         # Rewrite with Gemini (with site context)
         # subtitle_only: skip full rewrite — only generate a new meta description (much cheaper)
         if subtitle_only:
             print(f"  [ctr_opportunity] Generating improved meta description only (body untouched)...")
             rewritten = generate_blog_subtitle(post, config, site_context=site_context)
-        elif allow_title_change:
-            print(f"  [not_indexed] Content quality rewrite — new title allowed...")
-            rewritten = rewrite_blog_post(
-                post, competitor_summary, list(all_keywords), config, site_context=site_context
-            )
         else:
             print(f"  Rewriting with Gemini...")
             rewritten = rewrite_blog_post(
@@ -887,12 +883,8 @@ def run_update_pipeline(seed_keywords, config):
             print(f"  {rewritten}")
             continue
 
-        # not_indexed posts always get new images — complete rewrite with new title means old image is stale.
-        # All other posts: only generate if images are missing (existing images are fine to keep).
-        if allow_title_change:
-            needs_images = True
-        else:
-            needs_images = not post.get("image1Url") or not post.get("image2Url")
+        # Only generate images if the post is missing them; existing images are fine to keep.
+        needs_images = not post.get("image1Url") or not post.get("image2Url")
         # subtitle_only posts never need image generation (body is untouched)
         if subtitle_only:
             needs_images = False
@@ -916,8 +908,6 @@ def run_update_pipeline(seed_keywords, config):
 
         if subtitle_only:
             print(f"  Meta description generated. (body PROTECTED — ctr_opportunity mode)")
-        elif allow_title_change:
-            print(f"  Content quality rewrite complete. (not_indexed — new title will be applied)")
         else:
             print(f"  Rewrite complete. (title will be preserved on publish)")
 
@@ -1448,18 +1438,13 @@ def run_full_pipeline(seed_keywords, config):
             # ctr_opportunity: only update meta description, never touch body
             subtitle_only = (gsc_category == "ctr_opportunity")
 
-            # not_indexed: title CAN be changed — no rankings at risk (page was never indexed)
-            allow_title_change = (gsc_category == "not_indexed")
+            # Title = URL slug in the CMS — NEVER change it for existing posts, regardless of GSC category.
+            allow_title_change = False
 
             # subtitle_only: skip full rewrite — only generate a new meta description (much cheaper)
             if subtitle_only:
                 print(f"\n  [ctr_opportunity] Meta description only: {title[:60]}")
                 rewritten = generate_blog_subtitle(post, config, site_context=site_context)
-            elif allow_title_change:
-                print(f"\n  [not_indexed] Content quality rewrite — new title allowed: {title[:60]}")
-                rewritten = rewrite_blog_post(
-                    post, competitor_summary, list(all_keywords), config, site_context=site_context
-                )
             else:
                 print(f"\n  Rewriting: {title[:60]}")
                 rewritten = rewrite_blog_post(
@@ -1469,11 +1454,8 @@ def run_full_pipeline(seed_keywords, config):
                 print(f"  {rewritten}")
                 continue
 
-            # not_indexed posts always get new images — complete rewrite means old image is stale.
-            if allow_title_change:
-                needs_images = True
-            else:
-                needs_images = not post.get("image1Url") or not post.get("image2Url")
+            # Only generate images if the post is missing them; existing images are fine to keep.
+            needs_images = not post.get("image1Url") or not post.get("image2Url")
             # subtitle_only posts: never regenerate images (body untouched)
             if subtitle_only:
                 needs_images = False
@@ -1511,8 +1493,6 @@ def run_full_pipeline(seed_keywords, config):
                     )
                     if subtitle_only:
                         print(f"  Meta description updated! Body unchanged: {result['title']}")
-                    elif allow_title_change:
-                        print(f"  Content quality rewrite applied! New title: {result['title']}")
                     else:
                         print(f"  Updated! Title preserved: {result['title']}")
                     # Save original_body so recovery can fully restore content if rankings drop
@@ -3739,4 +3719,75 @@ def run_dedupe_pipeline(config):
     print(f"  אשכולות קניבליזציה שנמצאו : {len(clusters)}")
     print(f"  פוסטים שנמחקו             : {len(approved_deletes)}")
     print(f"  פוסטים ששוכתבו            : {len(approved_rewrites)}")
+    print("=" * 60)
+
+
+# ═══════════════════════════════════════════════
+# Mode: Restore Titles
+# ═══════════════════════════════════════════════
+
+def run_restore_titles_pipeline(config):
+    """
+    Restore original titles (URL slugs) for posts that had their title changed during an update run.
+
+    In this CMS, title == URL slug. When an update pipeline mistakenly changed a post's title,
+    the old URL became a 404 and rankings were lost. This mode reads the update history, finds
+    every post where the stored title differs from original_title, and restores the original_title
+    in MongoDB. The history file is updated in place so future impact reports match correctly.
+
+    Usage: python run.py restore_titles --config config.pawly.yaml
+    """
+    from publisher.mongodb_client import update_blog_post as _mongo_update_post
+    site_name = config["site"]["name"]
+    print("=" * 60)
+    print(f"  {site_name} — RESTORE TITLES (fix broken URL slugs)")
+    print("=" * 60)
+
+    history = _load_update_history(config)
+    if not history:
+        print("\n  No update history found. Nothing to restore.")
+        return
+
+    to_restore = {
+        post_id: entry
+        for post_id, entry in history.items()
+        if entry.get("original_title") and entry.get("title") != entry.get("original_title")
+    }
+
+    if not to_restore:
+        print(f"\n  All {len(history)} posts have matching title and original_title. Nothing to restore.")
+        return
+
+    print(f"\n  Found {len(to_restore)} post(s) with changed titles:\n")
+    for post_id, entry in to_restore.items():
+        print(f"  {post_id}")
+        print(f"    Broken URL title : {entry['title']}")
+        print(f"    Original title   : {entry['original_title']}")
+        print()
+
+    restored = 0
+    failed = 0
+    for post_id, entry in to_restore.items():
+        original_title = entry["original_title"]
+        try:
+            modified = _mongo_update_post(post_id, {"title": original_title}, config)
+            if modified:
+                print(f"  Restored: {original_title}")
+                history[post_id]["title"] = original_title
+                restored += 1
+            else:
+                print(f"  [warn] No document modified for {post_id} — post may have been deleted")
+                failed += 1
+        except Exception as e:
+            print(f"  [error] {post_id}: {e}")
+            failed += 1
+
+    _save_update_history(history, config)
+
+    print(f"\n{'=' * 60}")
+    print(f"  Restored : {restored} / {len(to_restore)} posts")
+    if failed:
+        print(f"  Failed   : {failed} posts — check above for details")
+    print(f"\n  Titles restored in MongoDB. Old URLs are live again.")
+    print(f"  Run `python run.py impact` in 3-7 days to verify recovery.")
     print("=" * 60)

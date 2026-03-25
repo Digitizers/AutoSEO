@@ -66,15 +66,20 @@ def update_blog_post(post_id, update_fields, config):
     update_fields: dict of fields to update, e.g. {"image1Url": "xxx.jpg", "title": "new title"}
     """
     from bson import ObjectId
+    from bson.errors import InvalidId
     client = _get_client(config)
     db = client[config["mongodb"]["database"]]
     collection = db[config["mongodb"]["collection"]]
 
-    result = collection.update_one(
-        {"_id": ObjectId(post_id)},
-        {"$set": update_fields},
-    )
-    return result.modified_count
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$set": update_fields},
+        )
+        return result.modified_count
+    except InvalidId:
+        print(f"  [mongo] Invalid post_id format: {post_id!r}")
+        return 0
 
 
 def _post_to_dict(post):
@@ -222,14 +227,19 @@ def fetch_recent_posts(config, limit=5):
 def fetch_post_by_id(post_id, config):
     """Fetch a single blog post by _id, returning title, subtitle, and body."""
     from bson import ObjectId
+    from bson.errors import InvalidId
     client = _get_client(config)
     db = client[config["mongodb"]["database"]]
     collection = db[config["mongodb"]["collection"]]
 
-    post = collection.find_one(
-        {"_id": ObjectId(post_id)},
-        {"title": 1, "subtitle": 1, "body": 1},
-    )
+    try:
+        post = collection.find_one(
+            {"_id": ObjectId(post_id)},
+            {"title": 1, "subtitle": 1, "body": 1},
+        )
+    except InvalidId:
+        print(f"  [mongo] Invalid post_id format: {post_id!r}")
+        return None
 
     if not post:
         return None
@@ -261,24 +271,34 @@ def fetch_all_products(config):
 def update_product(product_id, update_fields, config):
     """Update specific fields of a product in the wordpress_products collection."""
     from bson import ObjectId
+    from bson.errors import InvalidId
     client = _get_client(config)
     db = _get_products_db(client, config)
     col = db["wordpress_products"]
-    result = col.update_one(
-        {"_id": ObjectId(product_id)},
-        {"$set": update_fields},
-    )
-    return result.modified_count
+    try:
+        result = col.update_one(
+            {"_id": ObjectId(product_id)},
+            {"$set": update_fields},
+        )
+        return result.modified_count
+    except InvalidId:
+        print(f"  [mongo] Invalid product_id format: {product_id!r}")
+        return 0
 
 
 def delete_blog_post(post_id, config):
     """Permanently delete a blog post from MongoDB."""
     from bson import ObjectId
+    from bson.errors import InvalidId
     client = _get_client(config)
     db = client[config["mongodb"]["database"]]
     collection = db[config["mongodb"]["collection"]]
-    result = collection.delete_one({"_id": ObjectId(str(post_id))})
-    return result.deleted_count
+    try:
+        result = collection.delete_one({"_id": ObjectId(str(post_id))})
+        return result.deleted_count
+    except InvalidId:
+        print(f"  [mongo] Invalid post_id format: {post_id!r}")
+        return 0
 
 
 def fetch_static_pages(config):
@@ -301,16 +321,21 @@ def update_static_page(page_id, title, content, config):
     content: TipTap JSON object (dict, not string).
     """
     from bson import ObjectId
+    from bson.errors import InvalidId
     client = _get_client(config)
     db = client[config["mongodb"]["database"]]
     collection = db[config["mongodb"]["collection"]]
 
-    result = collection.update_one(
-        {"_id": ObjectId(page_id)},
-        {"$set": {
-            "title": title,
-            "content": content,
-            "updatedAt": datetime.now(timezone.utc),
-        }},
-    )
-    return result.modified_count
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(page_id)},
+            {"$set": {
+                "title": title,
+                "content": content,
+                "updatedAt": datetime.now(timezone.utc),
+            }},
+        )
+        return result.modified_count
+    except InvalidId:
+        print(f"  [mongo] Invalid page_id format: {page_id!r}")
+        return 0
