@@ -1,14 +1,14 @@
 import sys
 from pathlib import Path
 
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
 # Add project root to path so orchestrator/publisher/tools are importable
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from api.routes import sites, pipelines, history, gsc, posts
+from api.routes import sites, pipelines, history, gsc, posts  # noqa: E402
 
 app = FastAPI(
     title="SEO Blog Engine API",

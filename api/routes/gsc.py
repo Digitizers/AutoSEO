@@ -91,9 +91,6 @@ async def get_gsc_summary(site_id: str, days: int = 28):
                 "opportunities": {"page2": [], "ctr": []},
             }}
 
-        thresholds = gsc_config.get("protection_thresholds", {})
-        min_clicks = thresholds.get("min_clicks", 10)
-
         # Summary
         total_clicks = sum(v["clicks"] for v in perf.values())
         total_impressions = sum(v["impressions"] for v in perf.values())

@@ -1,7 +1,29 @@
+platform: mongodb
+
+# ── AI Provider ───────────────────────────────────────────────────────────────
+# Choose one block. See config.example.*.yaml for provider-specific examples.
+
 gemini:
   api_key: "YOUR_GEMINI_API_KEY"
   model: "gemini-2.5-flash"
   image_model: "imagen-4.0-fast-generate-001"
+
+# openai:
+#   api_key: "sk-..."
+#   model: "gpt-4o"
+#   image_model: "dall-e-3"
+
+# anthropic:
+#   api_key: "sk-ant-..."
+#   model: "claude-sonnet-4-6"
+
+# mistral:
+#   api_key: "..."
+#   model: "mistral-large-latest"
+
+# deepseek:
+#   api_key: "sk-..."
+#   model: "deepseek-chat"
 
 site:
   name: "YourSite"
@@ -67,7 +89,7 @@ context:
       description: "Description of product 2"
 
 search_console:
-  credentials_file: "client_secret_242852066968-bc5q46rb4pobapbu5iifd2rd9u673r82.apps.googleusercontent.com.json"   # OAuth2 client credentials from Google Cloud Console
+  credentials_file: "client_secret_xxx.json"   # OAuth2 client credentials from Google Cloud Console
   token_file: "gsc_token.json"               # Auto-saved after first login (shared across configs)
   site_url: "https://yoursite.com/"           # Override per-site (defaults to site.domain)
   protection_thresholds:
