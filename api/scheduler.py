@@ -7,8 +7,6 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
