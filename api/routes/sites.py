@@ -65,6 +65,11 @@ def test_platform_connection(request: TestConnectionRequest):
             raw = creds.get("site_url", "").strip().rstrip("/")
             if raw and not raw.startswith(("http://", "https://")):
                 raw = "https://" + raw
+            # Strip common wrong suffixes users paste from their browser
+            for _suffix in ("/wp-admin", "/wp-login.php", "/wp-login", "/blog", "/wp"):
+                if raw.lower().endswith(_suffix):
+                    raw = raw[: -len(_suffix)].rstrip("/")
+                    break
             base = raw
             url = base + "/wp-json/wp/v2/users/me"
             auth_method = creds.get("auth_method", "app_password")

@@ -89,6 +89,7 @@ async function testConnection() {
           <div class="space-y-1.5">
             <Label>{{ $t('wizard.credentials.siteUrl') }} <span class="text-destructive">*</span></Label>
             <Input v-model="wizard.form.wp_site_url" placeholder="https://myblog.com" />
+            <p class="text-xs text-muted-foreground">WordPress root URL only — no <code class="font-mono">/wp-admin</code> suffix</p>
           </div>
 
           <!-- Auth method picker -->
