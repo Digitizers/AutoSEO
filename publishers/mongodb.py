@@ -97,6 +97,24 @@ class MongoDBPublisher(BasePlatformPublisher):
             })
         return result
 
+    def upload_image(self, image_bytes: bytes, filename: str = "image.jpg") -> str | None:
+        """Upload to Supabase storage and return the full public URL."""
+        if not self.config.get("supabase", {}).get("url"):
+            return None
+        try:
+            from publisher.supabase_client import upload_image as _supa_upload, get_public_url
+            from publisher.mongodb_client import get_master_user_id
+            user_id = (
+                self.config.get("supabase", {}).get("storage_user_id")
+                or get_master_user_id(self.config)
+                or self.config["mongodb"]["collection"]
+            )
+            fname = _supa_upload(image_bytes, user_id, self.config, return_full_url=False)
+            return get_public_url(fname, user_id, self.config)
+        except Exception as exc:
+            print(f"  [mongodb] Image upload error: {exc}")
+            return None
+
     def test_connection(self) -> tuple[bool, str]:
         try:
             from pymongo import MongoClient

@@ -40,8 +40,11 @@ function defaultForm() {
     supabase_bucket: 'blog-poster',
     // WordPress
     wp_site_url: '',
+    wp_auth_method: 'app_password' as 'app_password' | 'password' | 'bearer',
     wp_username: '',
     wp_app_password: '',
+    wp_password: '',
+    wp_token: '',
     // WooCommerce
     wc_site_url: '',
     wc_consumer_key: '',
@@ -113,8 +116,13 @@ export const useWizardStore = defineStore('wizard', () => {
           if (!form.mongodb_collection.trim()) return 'MongoDB collection name is required'
         } else if (form.platform === 'wordpress') {
           if (!form.wp_site_url.trim()) return 'WordPress site URL is required'
-          if (!form.wp_username.trim()) return 'WordPress username is required'
-          if (!form.wp_app_password.trim()) return 'WordPress application password is required'
+          if (form.wp_auth_method === 'bearer') {
+            if (!form.wp_token.trim()) return 'Bearer token is required'
+          } else {
+            if (!form.wp_username.trim()) return 'WordPress username is required'
+            if (form.wp_auth_method === 'app_password' && !form.wp_app_password.trim()) return 'Application password is required'
+            if (form.wp_auth_method === 'password' && !form.wp_password.trim()) return 'Password is required'
+          }
         } else if (form.platform === 'woocommerce') {
           if (!form.wc_site_url.trim()) return 'WooCommerce site URL is required'
           if (!form.wc_consumer_key.trim()) return 'Consumer key is required'
@@ -168,8 +176,18 @@ export const useWizardStore = defineStore('wizard', () => {
       config.mongodb = { uri: form.mongodb_uri, database: form.mongodb_database, collection: form.mongodb_collection }
       config.supabase = { url: form.supabase_url, key: form.supabase_key, bucket: form.supabase_bucket }
     } else if (form.platform === 'wordpress') {
-      config.wordpress = { site_url: form.wp_site_url, username: form.wp_username, app_password: form.wp_app_password }
-      config.supabase = { url: form.supabase_url, key: form.supabase_key, bucket: form.supabase_bucket }
+      const wpCfg: Record<string, string> = {
+        site_url: form.wp_site_url,
+        auth_method: form.wp_auth_method,
+      }
+      if (form.wp_auth_method === 'bearer') {
+        wpCfg.token = form.wp_token
+      } else {
+        wpCfg.username = form.wp_username
+        if (form.wp_auth_method === 'app_password') wpCfg.app_password = form.wp_app_password
+        else wpCfg.password = form.wp_password
+      }
+      config.wordpress = wpCfg
     } else if (form.platform === 'woocommerce') {
       config.woocommerce = { site_url: form.wc_site_url, consumer_key: form.wc_consumer_key, consumer_secret: form.wc_consumer_secret }
     } else if (form.platform === 'shopify') {

@@ -13,14 +13,17 @@ type TestState = 'idle' | 'loading' | 'success' | 'error'
 const testState = ref<TestState>('idle')
 const testMessage = ref('')
 
-const needsSupabase = computed(() =>
-  wizard.form.platform === 'mongodb' || wizard.form.platform === 'wordpress',
-)
+const needsSupabase = computed(() => wizard.form.platform === 'mongodb')
 
 function credentialPayload() {
   const f = wizard.form
-  if (f.platform === 'mongodb')     return { uri: f.mongodb_uri }
-  if (f.platform === 'wordpress')   return { site_url: f.wp_site_url, username: f.wp_username, app_password: f.wp_app_password }
+  if (f.platform === 'mongodb') return { uri: f.mongodb_uri }
+  if (f.platform === 'wordpress') {
+    const base = { site_url: f.wp_site_url, auth_method: f.wp_auth_method }
+    if (f.wp_auth_method === 'bearer') return { ...base, token: f.wp_token }
+    return { ...base, username: f.wp_username,
+      ...(f.wp_auth_method === 'app_password' ? { app_password: f.wp_app_password } : { password: f.wp_password }) }
+  }
   if (f.platform === 'woocommerce') return { site_url: f.wc_site_url, consumer_key: f.wc_consumer_key, consumer_secret: f.wc_consumer_secret }
   if (f.platform === 'shopify')     return { store_domain: f.shopify_store_domain, admin_api_token: f.shopify_admin_api_token }
   if (f.platform === 'wix')         return { api_key: f.wix_api_key, site_id: f.wix_site_id }
@@ -81,11 +84,39 @@ async function testConnection() {
       <template v-else-if="wizard.form.platform === 'wordpress'">
         <div class="space-y-4">
           <p class="text-sm font-semibold text-foreground">{{ $t('wizard.credentials.wordpressSection') }}</p>
+
+          <!-- Site URL -->
           <div class="space-y-1.5">
             <Label>{{ $t('wizard.credentials.siteUrl') }} <span class="text-destructive">*</span></Label>
             <Input v-model="wizard.form.wp_site_url" placeholder="https://myblog.com" />
           </div>
-          <div class="grid grid-cols-2 gap-4">
+
+          <!-- Auth method picker -->
+          <div class="space-y-2">
+            <Label>Authentication method</Label>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button
+                v-for="m in [
+                  { value: 'app_password', label: 'App Password', hint: 'WP 5.6+ recommended' },
+                  { value: 'password',     label: 'Login Password', hint: 'Username + regular password' },
+                  { value: 'bearer',       label: 'Bearer Token',  hint: 'JWT or custom token' },
+                ]"
+                :key="m.value"
+                type="button"
+                @click="wizard.form.wp_auth_method = m.value as any"
+                class="flex flex-col items-center py-2.5 px-2 rounded-lg border text-xs transition-colors text-center"
+                :class="wizard.form.wp_auth_method === m.value
+                  ? 'border-primary bg-primary/10 text-primary font-semibold'
+                  : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'"
+              >
+                <span class="font-medium">{{ m.label }}</span>
+                <span class="opacity-60 leading-tight mt-0.5">{{ m.hint }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- App Password fields -->
+          <div v-if="wizard.form.wp_auth_method === 'app_password'" class="grid grid-cols-2 gap-4">
             <div class="space-y-1.5">
               <Label>{{ $t('wizard.credentials.username') }} <span class="text-destructive">*</span></Label>
               <Input v-model="wizard.form.wp_username" placeholder="admin" />
@@ -95,7 +126,37 @@ async function testConnection() {
               <Input v-model="wizard.form.wp_app_password" type="password" placeholder="xxxx xxxx xxxx xxxx" class="font-mono" />
             </div>
           </div>
-          <Alert variant="info">{{ $t('wizard.credentials.wordpressNote') }}</Alert>
+
+          <!-- Regular password fields -->
+          <div v-else-if="wizard.form.wp_auth_method === 'password'" class="grid grid-cols-2 gap-4">
+            <div class="space-y-1.5">
+              <Label>{{ $t('wizard.credentials.username') }} <span class="text-destructive">*</span></Label>
+              <Input v-model="wizard.form.wp_username" placeholder="admin" />
+            </div>
+            <div class="space-y-1.5">
+              <Label>Password <span class="text-destructive">*</span></Label>
+              <Input v-model="wizard.form.wp_password" type="password" placeholder="Your WordPress login password" />
+            </div>
+          </div>
+
+          <!-- Bearer token field -->
+          <div v-else-if="wizard.form.wp_auth_method === 'bearer'" class="space-y-1.5">
+            <Label>Bearer Token <span class="text-destructive">*</span></Label>
+            <Input v-model="wizard.form.wp_token" type="password" placeholder="eyJhbGci..." class="font-mono" />
+            <p class="text-xs text-muted-foreground">Generated by a JWT authentication plugin (e.g. JWT Auth WP REST API)</p>
+          </div>
+
+          <Alert variant="info">
+            <span v-if="wizard.form.wp_auth_method === 'app_password'">
+              Generate an Application Password in WordPress → Users → Profile → Application Passwords. Images are uploaded directly to your WP media library.
+            </span>
+            <span v-else-if="wizard.form.wp_auth_method === 'password'">
+              Uses your regular WordPress login. Application Passwords are recommended for better security when available.
+            </span>
+            <span v-else>
+              Provide a valid Bearer token from your JWT authentication plugin.
+            </span>
+          </Alert>
         </div>
       </template>
 

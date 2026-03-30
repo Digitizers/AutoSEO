@@ -61,6 +61,34 @@ class WooCommercePublisher(BasePlatformPublisher):
         )
         return resp.ok
 
+    def upload_image(self, image_bytes: bytes, filename: str = "image.jpg") -> str | None:
+        """Upload to WP media library if wp_username + wp_app_password are set in config.
+        WooCommerce runs on WordPress, so the WP REST API is available at the same site_url.
+        Add 'wp_username' and 'wp_app_password' to your woocommerce config block to enable this.
+        """
+        wc = self.config["woocommerce"]
+        wp_user = wc.get("wp_username", "")
+        wp_pass = wc.get("wp_app_password") or wc.get("wp_password", "")
+        if not wp_user or not wp_pass:
+            return None
+        try:
+            resp = requests.post(
+                f"{self._base()}/wp-json/wp/v2/media",
+                auth=(wp_user, wp_pass),
+                headers={
+                    "Content-Type": "image/jpeg",
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                },
+                data=image_bytes,
+                timeout=60,
+            )
+            if resp.ok:
+                return resp.json().get("source_url")
+            print(f"  [wc] Media upload failed: HTTP {resp.status_code}")
+        except Exception as exc:
+            print(f"  [wc] Media upload error: {exc}")
+        return None
+
     def test_connection(self) -> tuple[bool, str]:
         try:
             resp = requests.get(

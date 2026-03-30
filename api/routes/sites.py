@@ -62,13 +62,18 @@ def test_platform_connection(request: TestConnectionRequest):
     elif platform == PlatformType.WORDPRESS:
         try:
             import requests as req
-            from requests.auth import HTTPBasicAuth
             url = creds.get("site_url", "").rstrip("/") + "/wp-json/wp/v2/users/me"
-            r = req.get(url, auth=HTTPBasicAuth(creds.get("username", ""), creds.get("app_password", "")), timeout=10)
+            auth_method = creds.get("auth_method", "app_password")
+            if auth_method == "bearer":
+                r = req.get(url, headers={"Authorization": f"Bearer {creds.get('token', '')}"}, timeout=10)
+            elif auth_method == "password":
+                r = req.get(url, auth=(creds.get("username", ""), creds.get("password", "")), timeout=10)
+            else:  # app_password
+                r = req.get(url, auth=(creds.get("username", ""), creds.get("app_password", "")), timeout=10)
             if r.status_code == 200:
                 name = r.json().get("name", "user")
                 return {"success": True, "message": f"WordPress connected as: {name} ✓"}
-            raise HTTPException(status_code=400, detail=f"WordPress auth failed (HTTP {r.status_code}). Check URL, username, and application password.")
+            raise HTTPException(status_code=400, detail=f"WordPress auth failed (HTTP {r.status_code}). Check your credentials.")
         except HTTPException:
             raise
         except Exception as e:

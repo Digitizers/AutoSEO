@@ -34,3 +34,10 @@ class BasePlatformPublisher(ABC):
         Returns list of dicts: {_id, title, subtitle, url, created_at, status, price, image1Url, ...}
         """
         return []
+
+    def upload_image(self, image_bytes: bytes, filename: str = "image.jpg") -> str | None:
+        """Upload image bytes to this platform's media storage.
+        Returns the public URL of the uploaded image, or None if not supported / failed.
+        Override in platform-specific publishers.
+        """
+        return None
