@@ -23,6 +23,34 @@ jobs:
       - name: Lint
         run: ruff check api/ publishers/
 
+  test-python:
+    name: Python tests (pytest + coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install requests beautifulsoup4 requests-mock pytest pytest-cov
+
+      - name: Run tests with coverage
+        run: |
+          pytest test_integrations.py -v \
+            --cov=publishers \
+            --cov=tools \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
   build-ui:
     name: UI build (Vue + TypeScript)
     runs-on: ubuntu-latest
