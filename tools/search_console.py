@@ -1,4 +1,4 @@
-"""Google Search Console API client — OAuth2 auth, performance fetching, title protection & recovery."""
+"""Google Search Console API client — Service Account or OAuth2 auth, performance fetching, title protection & recovery."""
 import os
 import json
 from datetime import datetime, timedelta
@@ -9,15 +9,25 @@ from urllib.parse import urlparse
 # Authentication
 # ═══════════════════════════════════════════════
 
+def _detect_credentials_type(credentials_file: str) -> str:
+    """
+    Read the JSON file and return 'service_account' or 'oauth2'.
+    """
+    try:
+        with open(credentials_file) as f:
+            data = json.load(f)
+        return data.get("type", "oauth2")
+    except Exception:
+        return "oauth2"
+
+
 def _get_gsc_service(config):
     """
-    Build an authenticated GSC service using OAuth2.
-    First run: opens browser for consent → saves token.
-    Subsequent runs: uses saved refresh token automatically.
+    Build an authenticated GSC service.
+    Auto-detects credentials type from the JSON file:
+      - 'service_account' → uses service account key directly (no browser needed)
+      - anything else     → OAuth2 flow (opens browser on first run, saves token)
     """
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
 
     gsc_config = config.get("search_console", {})
@@ -28,16 +38,35 @@ def _get_gsc_service(config):
         "https://www.googleapis.com/auth/webmasters",
     ]
 
+    if not os.path.exists(credentials_file):
+        raise FileNotFoundError(
+            f"[gsc] Credentials file not found: {credentials_file}\n"
+            f"  Place the JSON file in the project root and update the config."
+        )
+
+    cred_type = _detect_credentials_type(credentials_file)
+
+    if cred_type == "service_account":
+        from google.oauth2 import service_account
+        creds = service_account.Credentials.from_service_account_file(
+            credentials_file, scopes=scopes
+        )
+        print(f"  [gsc] Using service account: {creds.service_account_email}")
+        return build("searchconsole", "v1", credentials=creds)
+
+    # OAuth2 path
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request
+
     creds = None
 
-    # Load existing token
     if os.path.exists(token_file):
         try:
             creds = Credentials.from_authorized_user_file(token_file, scopes)
         except Exception:
             creds = None
 
-    # Refresh or run OAuth flow
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
@@ -45,15 +74,8 @@ def _get_gsc_service(config):
             creds = None
 
     if not creds or not creds.valid:
-        if not os.path.exists(credentials_file):
-            raise FileNotFoundError(
-                f"[gsc] OAuth credentials file not found: {credentials_file}\n"
-                f"  Download it from Google Cloud Console → APIs & Services → Credentials"
-            )
         flow = InstalledAppFlow.from_client_secrets_file(credentials_file, scopes)
         creds = flow.run_local_server(port=0)
-
-        # Save token for future runs
         with open(token_file, "w") as f:
             f.write(creds.to_json())
         print(f"  [gsc] Token saved to {token_file}")
