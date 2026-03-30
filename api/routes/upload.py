@@ -21,7 +21,6 @@ async def upload_logo(file: UploadFile = File(...)):
 
     LOGOS_DIR.mkdir(exist_ok=True)
 
-    ext = os.path.splitext(file.filename or "logo.png")[1] or ".png"
     safe_name = "".join(c for c in (file.filename or "logo") if c.isalnum() or c in "._-")
     dest = LOGOS_DIR / safe_name
 

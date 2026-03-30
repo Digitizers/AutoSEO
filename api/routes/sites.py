@@ -104,7 +104,7 @@ def test_platform_connection(request: TestConnectionRequest):
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        f"Authentication failed (HTTP 401). "
+                        "Authentication failed (HTTP 401). "
                         + ("Check your username and application password. Generate one in Users → Profile → Application Passwords."
                            if auth_method == "app_password" else
                            "Check your username and password.")
