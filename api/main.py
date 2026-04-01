@@ -1,6 +1,11 @@
 import sys
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Windows: subprocess (used by pipeline runner) requires ProactorEventLoop
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402

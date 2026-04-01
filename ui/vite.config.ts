@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@popperjs/core': '@popperjs/core/dist/esm/popper.js',
     },
   },
   server: {

@@ -110,6 +110,18 @@ def test_platform_connection(request: TestConnectionRequest):
                            "Check your username and password.")
                     ),
                 )
+            if r.status_code == 403:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Access forbidden (HTTP 403). The WordPress REST API is reachable but blocked for this request. "
+                        "Common causes: (1) A security plugin (Wordfence, iThemes Security, All-In-One WP Security) is blocking REST API access — "
+                        "whitelist the REST API or disable 'Disable REST API' option. "
+                        "(2) The user account doesn't have sufficient role (needs Editor or Administrator). "
+                        "(3) A WAF or hosting firewall (Cloudflare, SiteGround, Kinsta) is blocking the request — "
+                        "whitelist the server IP or disable aggressive bot protection for the REST API path."
+                    ),
+                )
             if r.status_code == 404:
                 raise HTTPException(
                     status_code=400,
