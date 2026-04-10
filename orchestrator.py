@@ -3501,6 +3501,20 @@ def run_dedupe_pipeline(config):
         if matched_url and matched_url not in url_to_post:
             url_to_post[matched_url] = post
 
+    # Build set of recently-updated post IDs — protect from deletion.
+    # A post that was just rewritten may not be re-indexed yet; that's normal, not a deletion signal.
+    update_history = _load_update_history(config)
+    recently_updated_ids = set()
+    for post_id, entry in update_history.items():
+        last_updated = entry.get("updated_at", "")
+        try:
+            last_dt = datetime.fromisoformat(last_updated).replace(tzinfo=timezone.utc)
+            days_since = (datetime.now(timezone.utc) - last_dt).days
+            if days_since <= 30:
+                recently_updated_ids.add(post_id)
+        except Exception:
+            pass
+
     # ── Phase 3 & 4: For each cluster, identify winner/losers and check indexing ──
     action_plan = []
 
@@ -3533,9 +3547,15 @@ def run_dedupe_pipeline(config):
             # Phase 4: Classify loser
             loser_pos = loser_entry.get("position", 999)
             loser_clicks = loser_entry.get("clicks", 0)
+            loser_post_id = str(loser_post.get("_id", "")) if loser_post else ""
+            recently_updated = loser_post_id in recently_updated_ids
 
-            if not is_indexed:
+            if not is_indexed and not recently_updated:
+                # Truly unindexed and not recently rewritten — safe to delete
                 group = "safe_delete"
+            elif not is_indexed and recently_updated:
+                # Just rewritten — Google hasn't re-crawled it yet. Keep it.
+                group = "keep_for_now"
             elif loser_pos > 50 or loser_clicks == 0:
                 group = "needs_differentiation"
             else:
