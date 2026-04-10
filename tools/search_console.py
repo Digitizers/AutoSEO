@@ -144,9 +144,10 @@ def match_post_to_gsc_url(post_title, gsc_data, config):
     blog_url = config["site"].get("blog_url", f"https://{config['site']['domain']}/blog")
     blog_path = urlparse(blog_url).path.rstrip("/")
 
-    # Filter to blog URLs only
+    # Filter to blog URLs only (require trailing slash so listing page /programs
+    # is excluded but /programs/slug posts are included)
     blog_urls = {url: data for url, data in gsc_data.items()
-                 if blog_path in urlparse(url).path}
+                 if (blog_path + "/") in urlparse(url).path}
 
     if not blog_urls:
         return None, None
@@ -592,8 +593,10 @@ def find_cannibalization(page_queries, blog_path="", min_impressions=10, min_url
     query_to_urls = defaultdict(list)
 
     for url, queries in page_queries.items():
-        # Filter to blog URLs only if blog_path specified
-        if blog_path and blog_path not in url:
+        # Filter to blog URLs only if blog_path specified.
+        # Require trailing slash so the listing page (/programs) is excluded
+        # but individual posts (/programs/slug) are included.
+        if blog_path and (blog_path + "/") not in url:
             continue
         for q in queries:
             if q["impressions"] < min_impressions:

@@ -550,6 +550,33 @@ def build_static_page_prompt(page_title, page_id, current_text, config, site_con
     if site_context:
         context_block = format_context_for_prompt(site_context)
 
+    # Per-page purpose and conversion goal — tells Gemini what this page is meant to do
+    page_purpose_map = {
+        "home": (
+            "דף הבית של המכללה. מטרתו: להציג את מכללת אוורסט, ערכי הליבה שלה, הקורסים הפופולריים, "
+            "ויתרונות הלמידה. CTA ראשי: 'לרשימת הקורסים' ו'קבל ייעוץ חינם'."
+        ),
+        "counseling": (
+            "דף ייעוץ לימודי — מציע ייעוץ אישי וחינם לבחירת קורס מקצועי. "
+            "מטרה: להוביל את המבקר לשיחת ייעוץ עם יועץ לימודי. "
+            "CTA ראשי: 'קבל ייעוץ חינם עכשיו'. "
+            "טון: חם, תומך, מסיר חסמים. ענה על: מי מתאים לייעוץ? מה קורה בשיחה? כמה זמן לוקח?"
+        ),
+        "registration": (
+            "דף הרשמה לקורסים. מטרה: להפוך מתעניין לנרשם. "
+            "הסבר את תהליך ההרשמה בצורה פשוטה (3-4 שלבים), מה כולל הקורס, ומה צריך להביא. "
+            "CTA ראשי: 'הירשם עכשיו'. הסר חסמים: ציין אם יש מימון/הנחות/תשלום בתשלומים."
+        ),
+        "programs": (
+            "דף קורסים — מציג את כל הקורסים המוצעים במכללת אוורסט. "
+            "מטרה: עזור למבקר לזהות את הקורס המתאים לו ולעבור לדף הקורס. "
+            "כתוב מבוא קצר (150 מילה) על מגוון הקורסים ויתרונות הלמידה באוורסט, "
+            "ואז רשימת קטגוריות קורסים עם תיאור קצר לכל אחת."
+        ),
+    }
+    page_purpose = page_purpose_map.get(page_id, "")
+    purpose_block = f"\n=== מטרת העמוד ===\n{page_purpose}\n" if page_purpose else ""
+
     # GSC intelligence block — same logic as build_rewrite_prompt
     gsc_block = ""
     if gsc_context:
@@ -583,6 +610,7 @@ def build_static_page_prompt(page_title, page_id, current_text, config, site_con
 שכתב את תוכן העמוד הסטטי הבא בצורה משופרת, עשירה יותר ומותאמת SEO.
 
 {context_block}
+{purpose_block}
 {gsc_block}
 
 === פרטי העמוד ===
@@ -609,7 +637,7 @@ def build_static_page_prompt(page_title, page_id, current_text, config, site_con
 6. שלב 2-3 קישורים פנימיים לדפים אמיתיים באתר.
 7. הטון: מקצועי, חם, ומעודד. מותאם ל-{site_name}.
 8. שפה: כתוב הכל בעברית.
-9. אורך: לפחות כפול מהתוכן הנוכחי.
+9. אורך: לפחות 700 מילה (ולפחות כפול מהתוכן הנוכחי אם הוא ארוך יותר מ-350 מילה). דפים עם פחות מ-700 מילה לא ייצגו את המכללה בצורה ראויה ולא יתחרו ב-SERP.
 10. סיים את הדף בקטע שאלות נפוצות (FAQ) עם בדיוק 3 שאלות ותשובות בפורמט הבא:
     ### שאלות נפוצות
     **שאלה: [שאלה שאנשים שואלים בגוגל על נושא הדף]**
