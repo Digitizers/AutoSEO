@@ -13,7 +13,7 @@ from tools.competitor_analyzer import analyze_competitors, summarize_competitor_
 from tools.site_context import scrape_site_context
 from generator.gemini_client import generate_blog_post, rewrite_blog_post, rewrite_static_page, generate_blog_images, generate_blog_subtitle
 from publisher.post_publisher import publish_blog_post, update_existing_post, update_post_images
-from publisher.mongodb_client import fetch_static_pages, update_static_page, fetch_posts_missing_images, fetch_all_blog_posts
+from publisher.mongodb_client import fetch_static_pages, update_static_page, create_static_page, fetch_posts_missing_images, fetch_all_blog_posts
 from publisher.tiptap_converter import parse_gemini_output, extract_text_from_tiptap, markdown_to_static_tiptap
 from publisher.mongodb_client import update_blog_post as _mongo_update_post
 
@@ -594,6 +594,11 @@ def run_new_pipeline(seed_keywords, config):
         "paa_questions": topic_serp.get("people_also_ask", all_paa[:10]),
         "competitor_summary": competitor_summary,
         "serp_titles": [r["title"] for r in topic_serp.get("organic_results", [])],
+        "serp_snippets": [
+            {"position": r.get("position", ""), "title": r.get("title", ""), "snippet": r["snippet"]}
+            for r in topic_serp.get("organic_results", [])[:5]
+            if r.get("snippet")
+        ],
     }
 
     print(f"\n  Generating new blog post for: '{best_new_topic}'")
@@ -981,8 +986,21 @@ def run_static_pipeline(config):
     pages = fetch_static_pages(config)
     print(f"  Found {len(pages)} static pages")
 
+    # Auto-create stubs for any expected pages missing from the DB
+    expected_page_ids = config.get("static_pages", [])
+    if expected_page_ids:
+        existing_ids = {p.get("pageId") for p in pages}
+        missing_ids = [pid for pid in expected_page_ids if pid not in existing_ids]
+        for pid in missing_ids:
+            stub_title = pid.replace("-", " ").title()
+            stub_content = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": f"תוכן {stub_title}"}]}]}
+            new_id = create_static_page(pid, stub_title, stub_content, config)
+            pages.append({"_id": new_id, "pageId": pid, "title": stub_title, "content": stub_content})
+            print(f"  [create] Created missing static page stub: {pid} (id={new_id})")
+
     if not pages:
         print("\n  No static pages found in this collection.")
+        print("  Tip: add 'static_pages: [home, counseling, registration]' to your config to auto-create stubs.")
         return
 
     for page in pages:
@@ -1239,6 +1257,11 @@ def run_full_pipeline(seed_keywords, config):
             "paa_questions": topic_serp.get("people_also_ask", all_paa[:10]),
             "competitor_summary": competitor_summary,
             "serp_titles": [r["title"] for r in topic_serp.get("organic_results", [])],
+            "serp_snippets": [
+                {"position": r.get("position", ""), "title": r.get("title", ""), "snippet": r["snippet"]}
+                for r in topic_serp.get("organic_results", [])[:5]
+                if r.get("snippet")
+            ],
         }
 
         # Generate post
@@ -2013,7 +2036,13 @@ def run_diagnose_pipeline(config):
         print(f"  [gsc] Weekly trends unavailable: {e}")
         weekly_trends = []
 
-    blog_posts = fetch_all_blog_posts(config)
+    try:
+        blog_posts = fetch_all_blog_posts(config)
+    except Exception as e:
+        print(f"  [error] MongoDB connection failed: {e}")
+        print("  Cannot cross-reference posts without MongoDB.")
+        print("  Check: Atlas IP whitelist → Network Access, or verify your mongodb.uri in config.")
+        blog_posts = []
     print(f"  MongoDB: {len(blog_posts)} posts, GSC: {len(gsc_perf)} pages tracked")
 
     # ────────────────────────────────────────────
@@ -2388,9 +2417,67 @@ def run_diagnose_pipeline(config):
         line("  No pages in position 11-20 with significant impressions")
 
     # ────────────────────────────────────────────
-    # Section 10: Prioritized Recommendations
+    # Section 10: Title Quality vs. GSC Performance
     # ────────────────────────────────────────────
-    section("10. PRIORITIZED RECOMMENDATIONS")
+    section("10. TITLE QUALITY — SHORT (keyword) vs. LONG (marketing)")
+    from urllib.parse import unquote as _unquote
+    short_posts, long_posts = [], []
+    for post in blog_posts:
+        title = post.get("title", "")
+        word_count = len(title.split())
+        url, data = match_post_to_gsc_url(title, gsc_perf, config)
+        pos = data.get("position", 999) if data else 999
+        clicks = data.get("clicks", 0) if data else 0
+        impr = data.get("impressions", 0) if data else 0
+        entry = {"title": title, "words": word_count, "pos": pos, "clicks": clicks, "impr": impr}
+        if word_count <= 4:
+            short_posts.append(entry)
+        else:
+            long_posts.append(entry)
+
+    def _avg(lst, key):
+        vals = [x[key] for x in lst if x[key] not in (0, 999)]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    line(f"  Short titles (≤4 words): {len(short_posts)} posts")
+    if short_posts:
+        avg_pos = _avg(short_posts, "pos")
+        avg_clicks = _avg(short_posts, "clicks")
+        line(f"    avg position : {avg_pos or 'N/A'}  |  avg clicks : {avg_clicks or 'N/A'}")
+        top3 = sorted([p for p in short_posts if p["pos"] < 999], key=lambda x: x["pos"])[:3]
+        for p in top3:
+            line(f"    pos {p['pos']:5.1f}  {p['clicks']:4d}c  {p['impr']:6d}i  \"{p['title'][:55]}\"")
+
+    line(f"  Long titles  (>4 words): {len(long_posts)} posts")
+    if long_posts:
+        avg_pos = _avg(long_posts, "pos")
+        avg_clicks = _avg(long_posts, "clicks")
+        line(f"    avg position : {avg_pos or 'N/A'}  |  avg clicks : {avg_clicks or 'N/A'}")
+        top3 = sorted([p for p in long_posts if p["pos"] < 999], key=lambda x: x["pos"])[:3]
+        for p in top3:
+            line(f"    pos {p['pos']:5.1f}  {p['clicks']:4d}c  {p['impr']:6d}i  \"{p['title'][:55]}\"")
+
+    if short_posts and long_posts:
+        sp = _avg(short_posts, "pos")
+        lp = _avg(long_posts, "pos")
+        if sp and lp:
+            diff = round(lp - sp, 1)
+            if diff > 3:
+                line(f"")
+                line(f"  SHORT titles rank {diff} positions BETTER on average.")
+                line(f"  Recommendation: new posts should use short keyword-exact titles (≤4 words).")
+            elif diff < -3:
+                line(f"")
+                line(f"  Long titles are performing well here — no change needed.")
+            else:
+                line(f"")
+                line(f"  No significant position difference between short and long titles for this site.")
+
+    # ────────────────────────────────────────────
+    # Section 11: Prioritized Recommendations
+
+    # ────────────────────────────────────────────
+    section("11. PRIORITIZED RECOMMENDATIONS")
 
     recommendations = []
 
@@ -2457,7 +2544,7 @@ def run_diagnose_pipeline(config):
         print(f"  [warn] Could not load static pages: {e}")
 
     if static_pages:
-        section("11. STATIC PAGES")
+        section("12. STATIC PAGES")
         static_history = _load_static_history(config)
         in_gsc = 0
         not_in_gsc = 0
@@ -3514,13 +3601,17 @@ def run_dedupe_pipeline(config):
 
             # Truly duplicate — take action based on indexing status
             if loser["group"] == "safe_delete":
-                print(f"    [AI: כפול + לא מאונדקס → מוחק]")
                 if loser["post"]:
+                    print(f"    [AI: כפול + לא מאונדקס → מוחק]")
                     approved_deletes.append(loser["post"])
+                else:
+                    print(f"    [AI: כפול + לא מאונדקס → דף CMS (לא פוסט) — דילוג]")
             elif loser["group"] == "needs_differentiation":
-                print(f"    [AI: כפול + מאונדקס → משכתב לדיפרנציאציה]")
                 if loser["post"]:
+                    print(f"    [AI: כפול + מאונדקס → משכתב לדיפרנציאציה]")
                     approved_rewrites.append((loser["post"], winner_post, query))
+                else:
+                    print(f"    [AI: כפול + מאונדקס → דף CMS (לא פוסט) — דילוג]")
             else:
                 print(f"    [AI: כפול — שומר (יש תנועה)]")
 

@@ -135,9 +135,20 @@ def summarize_competitor_patterns(analyses):
     # Average images
     avg_imgs = sum(a["images_count"] for a in valid) // len(valid) if valid else 5
 
+    # Content previews from top 3 competitors (first 800 chars of body text)
+    content_previews = []
+    for a in valid[:3]:
+        if a.get("content_text"):
+            content_previews.append({
+                "url": a["url"],
+                "title": a.get("title", ""),
+                "preview": a["content_text"][:800],
+            })
+
     return {
         "avg_word_count": avg_wc,
         "common_headings": [h for h, _ in Counter(all_h2).most_common(15)],
         "common_keywords": [kw for kw, _ in all_keywords.most_common(30)],
         "avg_images": avg_imgs,
+        "content_previews": content_previews,
     }

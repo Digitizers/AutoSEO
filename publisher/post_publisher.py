@@ -24,6 +24,9 @@ def publish_blog_post(gemini_output, desktop_image_bytes, mobile_image_bytes, co
         raise ValueError("Failed to parse/convert body from Gemini output")
 
     print(f"  [publish] Title: {parsed['title']}")
+    title_word_count = len(parsed["title"].split())
+    if title_word_count > 6:
+        print(f"  [publish] ⚠ WARNING: Title is {title_word_count} words — URL will be long and may hurt rankings. Review before publishing.")
     print(f"  [publish] Subtitle: {parsed['subtitle'][:80]}...")
 
     # 2. Get userId (optional — some collections don't have users)

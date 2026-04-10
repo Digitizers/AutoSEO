@@ -1,3 +1,4 @@
+import os
 from google import genai
 from google.genai import types
 from generator.prompts import build_blog_prompt, build_edit_prompt, build_rewrite_prompt, build_fix_prompt, build_static_page_prompt, build_image_prompt, build_recovery_rewrite_prompt, build_product_prompt, build_differentiation_prompt, build_subtitle_only_prompt
@@ -182,34 +183,63 @@ def rewrite_product(product_data, gsc_context, config, site_context=None):
         return f"[Gemini Error] Failed to rewrite product: {e}"
 
 
-def _topic_to_visual_concept(topic, client, model):
+def _load_brand_images(image_paths):
+    """Load brand reference images from disk as genai Parts. Skips missing files silently."""
+    parts = []
+    ext_to_mime = {
+        "webp": "image/webp",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+    }
+    for path in (image_paths or []):
+        if not os.path.exists(path):
+            continue
+        ext = path.lower().rsplit(".", 1)[-1]
+        mime = ext_to_mime.get(ext, "image/jpeg")
+        try:
+            with open(path, "rb") as f:
+                parts.append(types.Part.from_bytes(data=f.read(), mime_type=mime))
+        except Exception as e:
+            print(f"  [imagen] Could not load brand image {path}: {e}")
+    return parts
+
+
+def _topic_to_visual_concept(topic, client, model, brand_image_parts=None):
     """
     Convert a Hebrew blog topic to a concise English visual concept for Imagen.
 
-    Instead of a literal translation (which can cause Imagen to render brand names or
-    course titles as text overlays), this produces a short scene description like
-    "professional person studying at desk with books and laptop" that Imagen
-    can render as pure photography with no text.
+    If brand_image_parts are provided (logo, campus photos, etc.), they are passed
+    as multimodal context so Gemini can match the brand's visual style and color palette
+    when describing the scene.
     """
+    style_context = (
+        "The images above show this brand's visual style and color palette. "
+        if brand_image_parts else ""
+    )
+    text_prompt = (
+        f"{style_context}"
+        "Convert this Hebrew blog post topic into a SHORT English visual scene description "
+        "for a stock photo prompt (max 15 words). "
+        "Describe WHAT YOU WOULD SEE IN A PHOTO — people, objects, setting, actions. "
+        "Match the professional educational aesthetic from the brand images if provided. "
+        "Do NOT include any brand names, course names, company names, or text that could appear in an image. "
+        "Do NOT translate literally. Focus on the visual scene only.\n\n"
+        f"Topic: {topic}\n\n"
+        "Visual scene (English only, max 15 words):"
+    )
+    contents = (brand_image_parts + [text_prompt]) if brand_image_parts else text_prompt
+
     try:
         response = client.models.generate_content(
             model=model,
-            contents=(
-                "Convert this Hebrew blog post topic into a SHORT English visual scene description "
-                "for a stock photo prompt (max 15 words). "
-                "Describe WHAT YOU WOULD SEE IN A PHOTO — people, objects, setting, actions. "
-                "Do NOT include any brand names, course names, company names, or text that could appear in an image. "
-                "Do NOT translate literally. Focus on the visual scene only.\n\n"
-                f"Topic: {topic}\n\n"
-                "Visual scene (English only, max 15 words):"
-            ),
+            contents=contents,
         )
         concept = response.text.strip().strip('"').strip("'").strip(".")
         if concept:
             return concept
     except Exception as e:
         print(f"  [imagen] Concept generation failed, using fallback: {e}")
-    # Fallback: simple translation without brand names
     return "professional person working in modern office environment"
 
 
@@ -225,8 +255,14 @@ def generate_blog_images(topic, title, config, site_context=None):
     image_model = config["gemini"].get("image_model", "imagen-4.0-fast-generate-001")
     text_model = config["gemini"]["model"]
 
+    # Load brand reference images (logo + any campus/style photos from config)
+    brand_image_paths = config.get("context", {}).get("image_style", {}).get("brand_style_images", [])
+    brand_image_parts = _load_brand_images(brand_image_paths)
+    if brand_image_parts:
+        print(f"  [imagen] Loaded {len(brand_image_parts)} brand reference image(s) for style context")
+
     # Convert topic to a visual concept (prevents brand names rendering as text in image)
-    visual_concept = _topic_to_visual_concept(topic, client, text_model)
+    visual_concept = _topic_to_visual_concept(topic, client, text_model, brand_image_parts=brand_image_parts)
     print(f"  [imagen] Topic: '{topic}' → visual concept: '{visual_concept}'")
 
     prompt = build_image_prompt(visual_concept, config=config, site_context=site_context)

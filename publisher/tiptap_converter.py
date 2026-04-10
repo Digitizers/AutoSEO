@@ -206,6 +206,11 @@ def markdown_to_tiptap(markdown_text):
             i += 1
             continue
 
+        # Skip GEO marker lines like === תשובה ישירה (לציטוט AI) ===
+        if re.match(r"^===.*===$", line.strip()):
+            i += 1
+            continue
+
         # Regular paragraph
         children.append(_make_node("p", line.strip()))
         i += 1
@@ -407,6 +412,9 @@ def parse_gemini_output(gemini_text):
             last_header_line = i
         elif stripped.startswith("SLUG:"):
             result["slug"] = _clean_field(stripped[5:])
+            # Enforce max 5 hyphen-separated words — long slugs are an AI fingerprint
+            if result["slug"] and len(result["slug"].split("-")) > 5:
+                result["slug"] = "-".join(result["slug"].split("-")[:5])
             last_header_line = i
         elif stripped == "---":
             body_start = i + 1
