@@ -59,6 +59,8 @@ def publish_blog_post(gemini_output, desktop_image_bytes, mobile_image_bytes, co
         "title": parsed["title"],
         "subtitle": parsed["subtitle"],
         "body": parsed["body_tiptap"],
+        "faq_schema": parsed.get("faq_schema", []),
+        "course_meta": parsed.get("course_meta", {}),
         "image1Url": image1_url,
         "image2Url": image2_url,
     }
@@ -157,6 +159,11 @@ def update_existing_post(post_id, gemini_output, desktop_image_bytes, mobile_ima
         "subtitle": parsed["subtitle"],
         "body": parsed["body_tiptap"],
     }
+
+    if parsed.get("faq_schema"):
+        update_fields["faq_schema"] = parsed["faq_schema"]
+    if parsed.get("course_meta"):
+        update_fields["course_meta"] = parsed["course_meta"]
 
     if desktop_image_bytes:
         print("  [update] Uploading new desktop image...")

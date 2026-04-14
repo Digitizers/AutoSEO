@@ -369,6 +369,49 @@ def _text_with_marks(text):
     return nodes
 
 
+def _parse_faq_schema(raw_output):
+    """Extract Q&A pairs from FAQ_SCHEMA: block at end of Gemini output."""
+    faq_items = []
+    if "FAQ_SCHEMA:" not in raw_output:
+        return faq_items
+    block = raw_output.split("FAQ_SCHEMA:")[-1].strip()
+    current_q = None
+    for line in block.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.upper().startswith("Q:"):
+            current_q = line[2:].strip()
+            current_q = re.sub(r'^\d+\.\s*', '', current_q)
+        elif line.upper().startswith("A:") and current_q:
+            answer = line[2:].strip()
+            if current_q and answer:
+                faq_items.append({"q": current_q, "a": answer})
+            current_q = None
+    return faq_items
+
+
+def _parse_course_meta(raw_output):
+    """Extract course metadata from COURSE_META: block."""
+    meta = {}
+    if "COURSE_META:" not in raw_output:
+        return meta
+    block = raw_output.split("COURSE_META:")[-1]
+    for marker in ["---", "IMAGE_SUGGESTIONS:", "FAQ_SCHEMA:"]:
+        if marker in block:
+            block = block.split(marker)[0]
+    for line in block.splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip().lower()
+        val = val.strip()
+        if val and val != "לא צוין":
+            meta[key] = val
+    return meta
+
+
 def parse_gemini_output(gemini_text):
     """
     Parse the structured Gemini blog post output into components.
@@ -381,8 +424,10 @@ def parse_gemini_output(gemini_text):
         ---
         IMAGE_SUGGESTIONS: ...
         INTERNAL_LINK_SUGGESTIONS: ...
+        FAQ_SCHEMA: ...
+        COURSE_META: ...
 
-    Returns dict with: title, subtitle, slug, body_markdown, body_tiptap
+    Returns dict with: title, subtitle, slug, body_markdown, body_tiptap, faq_schema, course_meta
     """
     result = {
         "title": "",
@@ -390,6 +435,8 @@ def parse_gemini_output(gemini_text):
         "slug": "",
         "body_markdown": "",
         "body_tiptap": "",
+        "faq_schema": [],
+        "course_meta": {},
     }
 
     lines = gemini_text.strip().split("\n")
@@ -425,11 +472,15 @@ def parse_gemini_output(gemini_text):
     if body_start == 0 and last_header_line >= 0:
         body_start = last_header_line + 1
 
-    # Find end of body (next --- or IMAGE_SUGGESTIONS or INTERNAL_LINK_SUGGESTIONS)
+    # Find end of body (next --- or IMAGE_SUGGESTIONS or INTERNAL_LINK_SUGGESTIONS or FAQ_SCHEMA or COURSE_META)
     body_end = len(lines)
     for i in range(body_start, len(lines)):
         stripped = lines[i].strip()
-        if stripped == "---" or stripped.startswith("IMAGE_SUGGESTIONS:") or stripped.startswith("INTERNAL_LINK_SUGGESTIONS:"):
+        if (stripped == "---"
+                or stripped.startswith("IMAGE_SUGGESTIONS:")
+                or stripped.startswith("INTERNAL_LINK_SUGGESTIONS:")
+                or stripped.startswith("FAQ_SCHEMA:")
+                or stripped.startswith("COURSE_META:")):
             body_end = i
             break
 
@@ -440,5 +491,8 @@ def parse_gemini_output(gemini_text):
     # Convert to TipTap JSON
     if result["body_markdown"]:
         result["body_tiptap"] = markdown_to_tiptap(result["body_markdown"])
+
+    result["faq_schema"] = _parse_faq_schema(gemini_text)
+    result["course_meta"] = _parse_course_meta(gemini_text)
 
     return result

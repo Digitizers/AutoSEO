@@ -49,6 +49,8 @@ def insert_blog_post(post_data, config):
         "title": post_data["title"],
         "subtitle": post_data["subtitle"],
         "body": post_data["body"],
+        "faq_schema": post_data.get("faq_schema", []),
+        "course_meta": post_data.get("course_meta", {}),
         "blog": config["mongodb"]["collection"],
         "image1Url": post_data["image1Url"],
         "image2Url": post_data["image2Url"],
@@ -72,6 +74,7 @@ def update_blog_post(post_id, update_fields, config):
     collection = db[config["mongodb"]["collection"]]
 
     try:
+        update_fields["updatedAt"] = datetime.now(timezone.utc)
         result = collection.update_one(
             {"_id": ObjectId(post_id)},
             {"$set": update_fields},

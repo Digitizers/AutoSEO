@@ -1,7 +1,7 @@
 import sys
 import os
 import yaml
-from orchestrator import run_new_pipeline, run_update_pipeline, run_static_pipeline, run_full_pipeline, run_images_pipeline, run_recover_pipeline, run_diagnose_pipeline, run_products_pipeline, run_impact_pipeline, run_dedupe_pipeline, run_restore_titles_pipeline
+from orchestrator import run_new_pipeline, run_update_pipeline, run_static_pipeline, run_full_pipeline, run_images_pipeline, run_recover_pipeline, run_diagnose_pipeline, run_products_pipeline, run_impact_pipeline, run_dedupe_pipeline, run_restore_titles_pipeline, run_cluster_pipeline
 
 # Fix Hebrew output on Windows console
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -16,14 +16,18 @@ def load_config(path="config.yaml"):
 
 
 def main():
-    # Parse --config flag
+    # Parse --config and --topic flags
     config_path = "config.yaml"
+    forced_topic = None
     args = sys.argv[1:]
     filtered_args = []
     i = 0
     while i < len(args):
         if args[i] == "--config" and i + 1 < len(args):
             config_path = args[i + 1]
+            i += 2
+        elif args[i] == "--topic" and i + 1 < len(args):
+            forced_topic = args[i + 1]
             i += 2
         else:
             filtered_args.append(args[i])
@@ -40,7 +44,7 @@ def main():
     site_name = config["site"]["name"]
 
     if mode == "new":
-        run_new_pipeline(seed_keywords, config)
+        run_new_pipeline(seed_keywords, config, forced_topic=forced_topic)
     elif mode == "update":
         run_update_pipeline(seed_keywords, config)
     elif mode == "static":
@@ -61,12 +65,15 @@ def main():
         run_dedupe_pipeline(config)
     elif mode == "restore_titles":
         run_restore_titles_pipeline(config)
+    elif mode == "clusters":
+        run_cluster_pipeline(config)
     else:
         print(f"{site_name} SEO Blog Engine")
         print("=" * 40)
         print()
         print("Usage:")
-        print("  python run.py new                                  Create a single new blog post")
+        print("  python run.py new                                  Create a single new blog post (engine picks topic)")
+        print("  python run.py new --topic \"קורס רכב ציבורי\"        Force-create a post for a specific topic")
         print("  python run.py update                               Fix/rewrite existing posts")
         print("  python run.py static                               Rewrite static pages (home, registration, etc.)")
         print("  python run.py full                                 Full init: new posts + updates + static pages")
@@ -77,6 +84,7 @@ def main():
         print("  python run.py impact                               Measure GSC impact of recent updates (before vs after)")
         print("  python run.py dedupe                               Fix cannibalization: merge/delete duplicate-topic posts")
         print("  python run.py restore_titles                       Restore original URL slugs for posts whose title was changed")
+        print("  python run.py clusters                             Topical cluster analysis + optional cross-link injection")
         print("  python run.py new --config config.pawly.yaml       Use specific config")
         print()
         print(f"Config: {config_path}")

@@ -265,6 +265,28 @@ def run_research(seed_keywords, config):
 
     site_context = scrape_site_context(config)
 
+    # Augment site_context with real blog post URLs from MongoDB
+    # This gives Gemini an accurate list to link to — prevents hallucinated 404 URLs
+    try:
+        from tools.text_utils import slugify_hebrew
+        blog_url = config["site"].get("blog_url", f"https://www.{domain}/programs")
+        existing_posts = fetch_all_blog_posts(config)
+        existing_urls = {l["url"] for l in site_context["all_internal_links"]}
+        added = 0
+        for post in existing_posts:
+            title = post.get("title", "")
+            if not title:
+                continue
+            slug = slugify_hebrew(title)
+            url = f"{blog_url}/{slug}"
+            if url not in existing_urls:
+                site_context["all_internal_links"].append({"url": url, "anchor": title})
+                existing_urls.add(url)
+                added += 1
+        print(f"  [context] Injected {added} blog post URLs into internal link pool ({len(existing_posts)} posts total)")
+    except Exception as e:
+        print(f"  [context] Could not load blog posts for internal links: {e}")
+
     # ────────────────────────────────────────────
     # Phase 1: Keyword Expansion
     # ────────────────────────────────────────────
@@ -553,12 +575,20 @@ def run_research(seed_keywords, config):
 # Mode 1: Create New Blog Post
 # ═══════════════════════════════════════════════
 
-def run_new_pipeline(seed_keywords, config):
-    """Full pipeline: research → generate new post → images → approve → publish."""
+def run_new_pipeline(seed_keywords, config, forced_topic=None):
+    """Full pipeline: research → generate new post → images → approve → publish.
+
+    forced_topic: if set, skip topic selection and use this keyword directly.
+                  Use when you need a post for a specific topic regardless of
+                  what the engine would auto-select.
+                  Example: python run.py new --topic "קורס רכב ציבורי"
+    """
     site_name = config["site"]["name"]
     print("=" * 60)
     print(f"  {site_name} SEO BLOG ENGINE — NEW POST")
     print("=" * 60)
+    if forced_topic:
+        print(f"  Forced topic: '{forced_topic}'")
 
     research = run_research(seed_keywords, config)
 
@@ -576,18 +606,22 @@ def run_new_pipeline(seed_keywords, config):
     print("\n[Phase 4] Generating new blog post with Gemini...")
 
     own_posts = research["own_posts"]
-    best_new_topic = None
-    for kw, _ in top_keywords:
-        if kw in uncovered_keywords and not _is_topic_covered_by_title(kw, own_posts):
-            best_new_topic = kw
-            break
-    if not best_new_topic:
-        for kw in uncovered_keywords:
-            if not _is_topic_covered_by_title(kw, own_posts):
+
+    if forced_topic:
+        best_new_topic = forced_topic
+    else:
+        best_new_topic = None
+        for kw, _ in top_keywords:
+            if kw in uncovered_keywords and not _is_topic_covered_by_title(kw, own_posts):
                 best_new_topic = kw
                 break
-    if not best_new_topic:
-        best_new_topic = seed_keywords[0]
+        if not best_new_topic:
+            for kw in uncovered_keywords:
+                if not _is_topic_covered_by_title(kw, own_posts):
+                    best_new_topic = kw
+                    break
+        if not best_new_topic:
+            best_new_topic = seed_keywords[0]
 
     topic_serp = serp_results.get(best_new_topic, {})
     topic_data = {
@@ -3809,3 +3843,98 @@ def run_restore_titles_pipeline(config):
     print(f"\n  Titles restored in MongoDB. Old URLs are live again.")
     print(f"  Run `python run.py impact` in 3-7 days to verify recovery.")
     print("=" * 60)
+
+
+# ═══════════════════════════════════════════════
+# Mode: Topical Cluster Analysis
+# ═══════════════════════════════════════════════
+
+def run_cluster_pipeline(config):
+    """
+    Analyze topical clusters across all existing posts.
+    Phase 1: Report which posts form clusters, identify pillar pages.
+    Phase 2 (optional): Cross-link pillar and satellite posts.
+
+    Usage: python run.py clusters --config config.everst.yaml
+    """
+    from tools.cluster_analyzer import analyze_clusters, print_cluster_report
+    from generator.prompts import build_cluster_linking_prompt
+    from generator.gemini_client import rewrite_blog_post
+
+    site_name = config["site"]["name"]
+    print("=" * 60)
+    print(f"  {site_name} — TOPICAL CLUSTER ANALYSIS")
+    print("=" * 60)
+
+    print("\n[Phase 1] Fetching all posts from MongoDB...")
+    posts = fetch_all_blog_posts(config)
+    print(f"  Found {len(posts)} posts")
+
+    analysis = analyze_clusters(posts)
+    print_cluster_report(analysis)
+
+    if not analysis["clusters"]:
+        print("\n  No multi-post clusters found. Run more posts to build topical depth.")
+        return
+
+    # Phase 2: Optional cross-link injection
+    print("\n\n[Phase 2] Cross-link injection")
+    print("  This will update pillar + satellite posts to add internal links between them.")
+    print("  Uses subtitle_only=False — full body rewrite. GSC-protected posts are SKIPPED.")
+    confirm = input("\n  Proceed with cross-link injection? (y/N): ").strip().lower()
+    if confirm != "y":
+        print("  Skipping cross-link injection.")
+        return
+
+    # Fetch GSC data for protection
+    site_context = scrape_site_context(config)
+    gsc_data = {}
+    if config.get("search_console"):
+        try:
+            from tools.search_console import get_site_performance
+            gsc_pages = get_site_performance(config)
+            for page in gsc_pages:
+                gsc_data[page.get("url", "")] = page
+        except Exception as e:
+            print(f"  [warn] GSC unavailable — protecting all posts by default: {e}")
+
+    blog_url = config["site"].get("blog_url", f"https://www.{config['site']['domain']}/programs")
+
+    for root, cluster in analysis["clusters"].items():
+        pillar = cluster["pillar"]
+        satellites = cluster["satellites"]
+        print(f"\n  Processing cluster: {root}")
+
+        all_cluster_posts = [pillar] + satellites
+        for post in all_cluster_posts:
+            is_pillar = post["_id"] == pillar["_id"]
+            post_url = f"{blog_url}/{post.get('title', '').replace(' ', '-')}"
+
+            # Skip GSC-protected posts
+            gsc_match = gsc_data.get(post_url, {})
+            if gsc_match.get("clicks", 0) >= config.get("search_console", {}).get("protection_thresholds", {}).get("min_clicks", 10):
+                print(f"    SKIP (GSC protected): {post['title']}")
+                continue
+
+            cluster_info = {
+                "is_pillar": is_pillar,
+                "pillar": pillar,
+                "satellites": satellites,
+            }
+            prompt = build_cluster_linking_prompt(post, cluster_info, config)
+
+            try:
+                print(f"    Relinking: {post['title']} ({'pillar' if is_pillar else 'satellite'})")
+                rewritten = rewrite_blog_post(prompt, config)
+                update_existing_post(
+                    post["_id"],
+                    rewritten,
+                    None, None,
+                    config,
+                    preserve_title=post["title"],
+                )
+                print(f"    Updated: {post['title']}")
+            except Exception as e:
+                print(f"    [error] {post['title']}: {e}")
+
+    print("\n  Cluster cross-linking complete.")
